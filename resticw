@@ -95,7 +95,10 @@ case "$CMD" in
         [ -f "$DIR/backup" ] && files+=" --files-from=$DIR/backup"
         [ -f "$DIR/exclude" ] && files+=" --exclude-file=$DIR/exclude"
         EXEC="$RESTIC backup $repo $files $@"
-        [ "${#rotate[@]}" != 0 ] && EXEC+=" && $RESTIC forget $repo ${rotate[@]} --prune"
+        if [ "${#rotate[@]}" != 0 ]; then
+            EXEC+=" && $RESTIC forget $repo ${rotate[@]} --prune"
+            [[ "$@" =~ (--quiet) ]] && EXEC+=" --quiet" # 'forget' should go quiet too
+        fi
         [ -f "$DIR/hook" ] && EXEC="$DIR/hook before && $EXEC && $DIR/hook after"
 	;;
     ncdu) EXEC="${RESTIC} --no-lock $repo $@ ls latest --ncdu | ${NCDU} -f -";;

@@ -1,0 +1,65 @@
+For a particular backup <name>, the configuration files are read from directories:
+ 1. /etc/restic/<name>
+ 2. $HOME/.config/restic/<name>
+
+Where each <name> should have the following
+
+<name>/   Configured name, called as an argument to the backup/restore scripts
+  exclude   Files/paths to exclude from backup (optional)
+  backup    Files/paths to backup
+  repo      The Restic backup path
+  passwd    The Restic repository password
+  hook      Pre-backup hook (optional)
+  retention Retention policy
+
+Onwership rules
+- All files must be chmod go-wx.
+- The passwd file must be chmod go-rwx.
+- The owner of the passwd file uid and $UID must agree.
+- All files in the directory must have the same owner.
+- Files in the configuration can be links, in which case the ownership applies
+  to the linked file.
+
+Best Practice
+- The classic 3-2-1 rule keeps three copies on two media with one off-site, yet
+  it now needs to be upgraded for modern threats.
+- Check that backups (a) contain the right content, and (b) are still valid. A
+  write-only backup isn't worth anyone's time.
+- Data backup to the cloud *must* be encrypted at source. Even then, don't put
+  anything in those backups that you don't want your grandma to see.
+
+Play book
+1. Hourly local backups of configuration and work/home data.
+2. Daily backup of more static data.
+3. Cloud backup of the subset of critical, irreplaceable data.
+
+For cron jobs, create a link to the backup binary with an extended name matching <name>
+$ ln -s /usr/bin/backup /etc/cron.daily/backup-data
+$ ln -s /usr/bin/backup /etc/cron.hourly/backup-home
+$ ln -s /usr/bin/backup /etc/cron.daily/backup-hdd    (external harddrive, to be swapped monthly regularly)
+$ ln -s /usr/bin/backup /etc/cron.weekly/backup-cloud
+
+Retention Policy (<name>/retention)
+- 24h of hourly local backups
+- 7 daily backups
+- 4 weekly backups
+- 12 monthly backups
+- 75 yearly backups
+
+Retention file format is
+```
+hourly: 24h
+daily: 7d
+weekly: 1m
+monthly: 1y
+yearly: 75y
+```
+
+Recipes
+
+resticw all backup         # backup and rotate all repositories
+resticw all check          # check all respositories
+resticw data ncdu          # look for through the files in the latest snapshot
+resticw data redu          # look for the largest files ever and add to the exclude list (mark files and manual update)
+resticw data rewrite --exclude-file=list.txt --forget   # to remove files from the repo
+resticw data mount /mnt/repo  # mount the repo

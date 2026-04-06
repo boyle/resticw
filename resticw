@@ -1,0 +1,110 @@
+#! /bin/bash
+
+# A configuration wrapper around restic
+
+[ "x$(stat -c '%u:%a' "$(realpath "$0")")" != "x0:755" ] && echo "error: insecure $(basename $0)" 1>&2 && exit 1
+
+CONFIGS+=( $(find /etc/resticw/* $HOME/.config/resticw/* -type d 2>/dev/null | awk -F '/' '{print $NF}' | sort -u) )
+config_list="all|$(IFS='|' ; echo -e "${CONFIGS[*]}")"
+[ ${#CONFIGS[@]} == 0 ] && config_list="none"
+[ $# -lt 2 ] && echo "usage: $(basename $0) <$config_list> <cmd> [args]" 1>&2 && exit 1
+
+# As the 'backup' user:
+# - the config must be owned by root
+# - the cache dir is /var/cache/restic
+# (The default RESTIC_CACHE_DIR is $XDG_CACHE_HOME/restic,
+#  or ~/.cache/restic if XDG_CACHE_HOME is not set.)
+uid=$UID
+[ "x$UID" == "x$(id -u backup)" ] && uid=0
+[ "x$uid" == "x0" ] && export RESTIC_CACHE_DIR=/var/cache/restic
+if [ "x$UID" == "x0" ]; then
+    mkdir -p -m 750 "$RESTIC_CACHE_DIR"
+    chown backup:backup "$RESTIC_CACHE_DIR"
+
+    PRIV=-all,+dac_read_search  # the 'backup' user needs 'root' read-only access
+    exec setpriv --reuid backup --regid backup --clear-groups --reset-env \
+        --bounding-set=${PRIV} --inh-caps=${PRIV} --ambient-caps=${PRIV} \
+        --no-new-privs \
+        -- $0 "$@"
+fi
+# check permissions are "safe"
+#id && setpriv --dump
+
+TARGET="${1//[^a-zA-Z0-9-]/}" # only accept alphanumerics
+[ "$TARGET" != "$1" ] && echo "error: $1: invalid target" 1>&2 && exit 1
+shift
+
+if [ "x$TARGET" == "xall" ]; then
+  [[ ! "$@" =~ (--quiet) ]] && set -e
+  for i in ${CONFIGS[@]}; do
+    "$0" "$i" $@
+  done
+  exit 0
+fi
+
+# $HOME/.config/resticw superceeds /etc/resticw config
+DIR=""
+for i in "/etc/resticw/$TARGET" "$HOME/.config/resticw/$TARGET"; do
+    [ -d "$i" ] && DIR="$i"
+done
+[ ! -d "$DIR" ] && echo "error: $TARGET: not a valid config dir" 1>&2 && exit 1
+[ "x$(stat -c '%u:%a' "$DIR")" != "x$uid:755" ] && echo "error: '$DIR' permissions must be 755 and owned by ($uid)" 1>&2 && exit 1
+
+# required config files
+for i in passwd repo; do
+    [ ! -f "$DIR/$i" ] && echo "error: $DIR/$i: missing" 1>&2 && exit 1
+done
+# check ownership and permissions
+for f in passwd repo backup exclude hook retention; do
+    [ ! -f "$DIR/$f" ] && continue
+    ff="$(realpath "$DIR/$f")"
+    [ "x$(stat -c '%u' "$ff")" != "x$uid" ] && echo "error: $DIR/$f not owned by user ($uid)" 1>&2 && exit 1
+    case "$f" in
+        passwd) mod="600";;
+        hook) mod="750";;
+        *) mod="644" ;;
+    esac
+    [ "x$(stat -c '%a' "$ff")" != "x$mod" ] && echo "error: $DIR/$f permissions must be $mod" 1>&2 && exit 1
+    [ $f == "hook" ] && [ ! -x "$DIR/hook" ] && echo "error: $DIR/$f not executable by user '$USER' ($UID)" 1>&2 && exit 1
+done
+
+rotate=()
+if [ -f "$DIR/retention" ]; then
+    for i in hourly daily weekly monthly yearly; do
+        x="$(grep -1E "^ *$i: *[0-9][0-9]*[^hdmy] *\$" $DIR/retention)"
+        [ -n "$x" ] && echo "error: $DIR/retention: unrecognized retention period" 1>&2 && exit 1
+        n="$(grep -E "^ *$i: *[0-9][0-9]*[hdmy] *\$" $DIR/retention | sed -e 's/.*: *//' -e 's/ *$//')"
+        rotate+=("--keep-within-$i $n")
+    done
+fi
+
+CMD="${1//[^a-zA-Z0-9-]/}" # only accept alphanumerics
+shift
+
+NCDU=/usr/bin/ncdu
+REDU=/usr/bin/redu
+RESTIC=/usr/bin/restic
+repo="--password-file=$DIR/passwd --repository-file=$DIR/repo"
+case "$CMD" in
+    backup)
+        if [ ! -f "$DIR/backup" ]; then
+            [[ ! "$@" =~ (--quiet) ]] && echo "warning: $TARGET: skipping backup" 1>&2
+            exit 0
+        fi
+        files=""
+        [ -f "$DIR/backup" ] && files+=" --files-from=$DIR/backup"
+        [ -f "$DIR/exclude" ] && files+=" --exclude-file=$DIR/exclude"
+        EXEC="$RESTIC backup $repo $files $@"
+        [ "${#rotate[@]}" != 0 ] && EXEC+=" && $RESTIC forget $repo ${rotate[@]} --prune"
+        [ -f "$DIR/hook" ] && EXEC="$DIR/hook before && $EXEC && $DIR/hook after"
+	;;
+    ncdu) EXEC="${RESTIC} --no-lock $repo $@ ls latest --ncdu | ${NCDU} -f -";;
+    redu) EXEC="${REDU} -j 12 $repo $@";;
+    *) EXEC="$RESTIC $repo $CMD $@";;
+esac
+
+[[ "$@" =~ (--dry-run|--pretend) ]] && echo "$EXEC" && exit 0
+
+set -e -o pipefail
+[[ ! "$@" =~ (--quiet) ]] && set -x
+eval "${EXEC}"

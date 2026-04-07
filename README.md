@@ -36,7 +36,8 @@ name
   Files and directories listed in /**backup** will be included. Files and directories in /**exclude** will be excluded.
   If **backup** does not exist, this repository will be skipped for backup but can still be used for other restic operations
     (e.g. for remote backups stored at this location).
-  If the /**hook** script exists, it will be executed before and after the backup with a single argument (**before**, **after**).
+  If the /**hook** script exists, it will be executed before and after the backup with two arguments (/**hook** \<**before**|**after**\> \<cmd\>).
+  A hook script can call other scripts or tools, but should be careful to check for full paths and correct ownership/permisions.
   If /**retention** exists, **restic forget** is used to implement the retention policy.
   Repository integrity will be confirmed using **restic check** after all updates are complete.
 
@@ -58,7 +59,23 @@ name
 
 # EXAMPLES
 
+Initialize a new repository
+```
+mkdir -p /etc/resticw/hdd
+echo "/mnt/hdd/backup" > /etc/resticw/hdd/repo
+cat /dev/urandom | tr -dc a-zA-Z0-9 | fold -w 48 | head -n 1 > /etc/resticw/hdd/passwd
+chmod 600 /etc/resticw/hdd/passwd
+chmod 644 /etc/resticw/hdd/repo
+mkdir -p /mnt/hdd/backup
+chown backup:backup /mnt/hdd/backup
+chmod 750 /mnt/hdd/backup
+resticw hdd init
+# ... add /backup config
+resticw hdd backup
+```
+
 To permanently remove files from the repository
+
 | **resticw** \<name\> **rewrite** **--exclude-file=**list.txt **--forget**
 
 To mount the repository, for recovering files
@@ -68,6 +85,13 @@ To mount the repository, for recovering files
 To check a repository including all the data
 
 | **resticw** \<**all**|name\> **check --read-data**
+
+Hook scripts can check for permission and ownership of other hook scripts with
+```
+subhook="$(realpath $(dirname $0)/../other/hook)"
+[ "x$(stat -c '%u:%g:%a' "$0")" != "x$(stat -c '%u:%g:%a' "$subhook")" ] && \
+  echo "error: $subhook: owner & permissions must match $0" 1>&2 && exit 1
+```
 
 ## Best Practices
 

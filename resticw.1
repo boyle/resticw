@@ -49,8 +49,10 @@ If \f[B]backup\f[R] does not exist, this repository will be skipped for
 backup but can still be used for other restic operations (e.g.\ for
 remote backups stored at this location).
 If the /\f[B]hook\f[R] script exists, it will be executed before and
-after the backup with a single argument (\f[B]before\f[R],
-\f[B]after\f[R]).
+after the backup with two arguments (/\f[B]hook\f[R]
+<\f[B]before\f[R]|\f[B]after\f[R]> <cmd>).
+A hook script can call other scripts or tools, but should be careful to
+check for full paths and correct ownership/permisions.
 If /\f[B]retention\f[R] exists, \f[B]restic forget\f[R] is used to
 implement the retention policy.
 Repository integrity will be confirmed using \f[B]restic check\f[R]
@@ -70,9 +72,26 @@ the exclusions configuration and entirely remove files from the
 repository.
 See EXAMPLES.
 .SH EXAMPLES
-To permanently remove files from the repository | \f[B]resticw\f[R]
-<name> \f[B]rewrite\f[R] \f[B]\(enexclude\-file=\f[R]list.txt
-\f[B]\(enforget\f[R]
+Initialize a new repository
+.IP
+.EX
+mkdir \-p /etc/resticw/hdd
+echo \(dq/mnt/hdd/backup\(dq > /etc/resticw/hdd/repo
+cat /dev/urandom | tr \-dc a\-zA\-Z0\-9 | fold \-w 48 | head \-n 1 > /etc/resticw/hdd/passwd
+chmod 600 /etc/resticw/hdd/passwd
+chmod 644 /etc/resticw/hdd/repo
+mkdir \-p /mnt/hdd/backup
+chown backup:backup /mnt/hdd/backup
+chmod 750 /mnt/hdd/backup
+resticw hdd init
+# ... add /backup config
+resticw hdd backup
+.EE
+.PP
+To permanently remove files from the repository
+.PP
+\f[B]resticw\f[R] <name> \f[B]rewrite\f[R]
+\f[B]\(enexclude\-file=\f[R]list.txt \f[B]\(enforget\f[R]
 .PP
 To mount the repository, for recovering files
 .PP
@@ -81,6 +100,15 @@ To mount the repository, for recovering files
 To check a repository including all the data
 .PP
 \f[B]resticw\f[R] <\f[B]all\f[R]|name> \f[B]check \(enread\-data\f[R]
+.PP
+Hook scripts can check for permission and ownership of other hook
+scripts with
+.IP
+.EX
+subhook=\(dq$(realpath $(dirname $0)/../other/hook)\(dq
+[ \(dqx$(stat \-c \(aq%u:%g:%a\(aq \(dq$0\(dq)\(dq != \(dqx$(stat \-c \(aq%u:%g:%a\(aq \(dq$subhook\(dq)\(dq ] && \(rs
+  echo \(dqerror: $subhook: owner & permissions must match $0\(dq 1>&2 && exit 1
+.EE
 .SS Best Practices
 .IP \(bu 2
 The classic 3\-2\-1 rule keeps three copies on two media with one

@@ -99,12 +99,12 @@ case "$CMD" in
             EXEC+=" && $RESTIC forget $repo ${rotate[@]} --prune"
             [[ "$@" =~ (--quiet) ]] && EXEC+=" --quiet" # 'forget' should go quiet too
         fi
-        [ -f "$DIR/hook" ] && EXEC="$DIR/hook before && $EXEC && $DIR/hook after"
 	;;
     ncdu) EXEC="${RESTIC} --no-lock $repo $@ ls latest --ncdu | ${NCDU} -f -";;
     redu) EXEC="${REDU} -j 12 $repo $@";;
     *) EXEC="$RESTIC $repo $CMD $@";;
 esac
+[ -f "$DIR/hook" ] && EXEC="$DIR/hook before $CMD && $EXEC && $DIR/hook after $CMD"
 
 [[ "$@" =~ (--dry-run|--pretend) ]] && echo "$EXEC" && exit 0
 

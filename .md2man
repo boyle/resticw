@@ -1,0 +1,19 @@
+#! /bin/sh -e
+[ ! -L .git/hooks/pre-commit ] && (cd .git/hooks && ln -s ../../$(basename $0) pre-commit)
+if git rev-parse --verify HEAD >/dev/null 2>&1 ; then
+	against=HEAD
+else
+	# Initial commit: diff against an empty tree object
+	against=4b825dc642cb6eb9a060e54bf8d69288fbee4904
+fi
+files=$(git diff-index --diff-filter=ACMR --name-only -r --cached $against -- | grep '^README\.md$')
+for file in $files; do
+    out=$(grep '^<!--' $file | cut -d' ' -f2 | tr '[A-Z]' '[a-z]' | sed 's/(\([0-9]\))/.\1/')
+    x=`echo $file`
+    if test "x$x" != "x"; then
+	    sed -e 's/<!--/%/' -e 's/-->//' $file | pandoc --standalone --to man -o $out -
+        git add $out
+        echo "updated $file --> $out"
+        echo "  \$  man -l $out"
+    fi
+done

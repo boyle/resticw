@@ -94,7 +94,7 @@ case "$CMD" in
         files=""
         [ -f "$DIR/backup" ] && files+=" --files-from=$DIR/backup"
         [ -f "$DIR/exclude" ] && files+=" --exclude-file=$DIR/exclude"
-        EXEC="$RESTIC backup $repo $files $@"
+        EXEC="$RESTIC backup $repo --cleanup-cache $files $@"
         if [ "${#rotate[@]}" != 0 ]; then
             EXEC+=" && $RESTIC forget $repo ${rotate[@]} --prune"
             [[ "$@" =~ (--quiet) ]] && EXEC+=" --quiet" # 'forget' should go quiet too

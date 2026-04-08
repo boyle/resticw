@@ -48,9 +48,17 @@ Files and directories in /\f[B]exclude\f[R] will be excluded.
 If \f[B]backup\f[R] does not exist, this repository will be skipped for
 backup but can still be used for other restic operations (e.g.\ for
 remote backups stored at this location).
+When \f[B]resticw\f[R] is run as root, it will drop privileges (before
+running /\f[B]hook\f[R], /\f[B]env\f[R], \f[B]resticw\f[R]) except for
+the \f[CR]dac_read_search\f[R] capability (read\-only access to the
+whole file system).
 If the /\f[B]hook\f[R] script exists, it will be executed before and
 after the backup with two arguments (/\f[B]hook\f[R]
 <\f[B]before\f[R]|\f[B]after\f[R]> <cmd>).
+If the /\f[B]env\f[R] script exists, it will inject environment
+variables.
+If /\f[B]mount\f[R] exists, the path will be
+\f[B]mount\f[R]/\f[B]umount\f[R] before dropping privileges.
 A hook script can call other scripts or tools, but should be careful to
 check for full paths and correct ownership/permisions.
 If /\f[B]retention\f[R] exists, \f[B]restic forget\f[R] is used to
@@ -166,19 +174,19 @@ directories: /\f[B]etc\f[R]/\f[B]resticw\f[R]/<name> (global) and
 Local configuration overrides global configuration.
 .PP
 Each <name> directory may contain files /\f[B]repo\f[R],
-/\f[B]passwd\f[R], /\f[B]backup\f[R], /\f[B]exclude\f[R],
-/\f[B]retention\f[R] and /\f[B]hook\f[R].
+/\f[B]passwd\f[R], /\f[B]mount\f[R], /\f[B]env\f[R], /\f[B]backup\f[R],
+/\f[B]exclude\f[R], /\f[B]retention\f[R] and /\f[B]hook\f[R].
 The /\f[B]repo\f[R] and /\f[B]passwd\f[R] files are mandatory.
 The remaining files are optional.
-The /\f[B]hook\f[R] script is an executable.
+The /\f[B]hook\f[R] and /\f[B]env\f[R] scripts are executable.
 Any other files in the directory are ignored.
 .PP
 Rules for the ownership and visibility of configuration files is
 enforced for security.
 (Or at least reduced finger fudges.)
 All files must be chmod go\-wx.
-The /\f[B]passwd\f[R] file must be chmod go\-rwx.
-The owner of the /\f[B]passwd\f[R] file and $UID must agree.
+The /\f[B]passwd\f[R] and /\f[B]env\f[R] files must be chmod go\-rwx.
+The owner of the /\f[B]passwd\f[R] file must be the current user.
 All files in the directory must have the same owner.
 Files in the configuration can be links, in which case the ownership
 rule applies to the linked file (see \f[B]realpath\f[R](1)).
@@ -189,4 +197,5 @@ Maybe.
 .SH AUTHOR
 Alistair Boyle <alistair.js.boyle\(atgmail.com>
 .SH SEE ALSO
-\f[B]restic\f[R](1), \f[B]ncdu\f[R](1), \f[B]redu\f[R](1)
+\f[B]restic\f[R](1), \f[B]ncdu\f[R](1), \f[B]redu\f[R](1),
+\f[B]setpriv\f[R](1), \f[B]capabilities\f[R](7)

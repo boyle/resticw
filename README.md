@@ -36,7 +36,12 @@ name
   Files and directories listed in /**backup** will be included. Files and directories in /**exclude** will be excluded.
   If **backup** does not exist, this repository will be skipped for backup but can still be used for other restic operations
     (e.g. for remote backups stored at this location).
+  When **resticw** is run as root, it will drop privileges (before running
+    /**hook**, /**env**, **resticw**) except for the `dac_read_search` capability
+    (read-only access to the whole file system).
   If the /**hook** script exists, it will be executed before and after the backup with two arguments (/**hook** \<**before**|**after**\> \<cmd\>).
+  If the /**env** script exists, it will inject environment variables.
+  If /**mount** exists, the path will be **mount**/**umount** before dropping privileges.
   A hook script can call other scripts or tools, but should be careful to check for full paths and correct ownership/permisions.
   If /**retention** exists, **restic forget** is used to implement the retention policy.
   Repository integrity will be confirmed using **restic check** after all updates are complete.
@@ -134,17 +139,18 @@ For a particular backup \<name\>, the configuration files are read from director
 Local configuration overrides global configuration.
 
 Each \<name\> directory may contain files
-  /**repo**, /**passwd**, /**backup**,
-  /**exclude**, /**retention** and /**hook**.
+  /**repo**, /**passwd**,
+  /**mount**, /**env**,
+  /**backup**, /**exclude**, /**retention** and /**hook**.
 The /**repo** and /**passwd** files are mandatory.
 The remaining files are optional.
-The /**hook** script is an executable.
+The /**hook** and /**env** scripts are executable.
 Any other files in the directory are ignored.
 
 Rules for the ownership and visibility of configuration files is enforced for security. (Or at least reduced finger fudges.)
 All files must be chmod go-wx.
-The /**passwd** file must be chmod go-rwx.
-The owner of the /**passwd** file and $UID must agree.
+The /**passwd** and /**env** files must be chmod go-rwx.
+The owner of the /**passwd** file must be the current user.
 All files in the directory must have the same owner.
 Files in the configuration can be links, in which case the ownership rule applies to
 the linked file (see **realpath**(1)).
@@ -157,4 +163,4 @@ Maybe.
 Alistair Boyle \<alistair.js.boyle@gmail.com\>
 
 # SEE ALSO
-**restic**(1), **ncdu**(1), **redu**(1)
+**restic**(1), **ncdu**(1), **redu**(1), **setpriv**(1), **capabilities**(7)

@@ -9,6 +9,13 @@ config_list="all|$(IFS='|' ; echo -e "${CONFIGS[*]}")"
 [ ${#CONFIGS[@]} == 0 ] && config_list="none"
 [ $# -lt 2 ] && echo "usage: $(basename $0) <$config_list> <cmd> [args]" 1>&2 && exit 1
 
+# print a sheet with the backup keys to the local printer
+if [[ "x$2" == "xkeys-to-lpr" ]]; then
+    texttopdf=/usr/libexec/cups/filter/texttopdf
+    $0 $1 keys $@ | $texttopdf 1 1 1 1 'cpi=18 lpi=10 portrait' 2>/dev/null | lpr
+    exit 0
+fi
+
 # As the 'backup' user:
 # - the config must be owned by root
 uid=$UID
@@ -18,7 +25,7 @@ TARGET="${1//[^a-zA-Z0-9-]/}" # only accept alphanumerics
 [ "$TARGET" != "$1" ] && echo "error: $1: invalid target" 1>&2 && exit 1
 shift
 if [ "x$TARGET" == "xall" ]; then
-    [[ ! "$@" =~ (--quiet) ]] && set -x
+    [[ ! "$@" =~ (--quiet) ]] && [ "x$1" != "xkeys" ] && set -x
     for i in ${CONFIGS[@]}; do
         "$0" "$i" $@
     done
@@ -108,6 +115,14 @@ case "$CMD" in
         ;;
     ncdu) EXEC="${RESTIC} --no-lock $repo $@ ls latest --ncdu | ${NCDU} -f -";;
     redu) EXEC="${REDU} -j 12 $repo $@";;
+    keys)
+        set +ex
+            printf "%8s %42s %s\n" $(basename $DIR) $(cat $DIR/repo) $(cat $DIR/passwd)
+        for i in $(cat $DIR/env 2>/dev/null); do
+            printf "%52s%s\n" "" $i
+        done
+        exit 0
+        ;;
     *) EXEC="$RESTIC $repo $CMD $@";;
 esac
 [ -f "$DIR/hook" ] && EXEC="$DIR/hook before $CMD && trap \"$DIR/hook after $CMD\" EXIT && $EXEC"

@@ -1,4 +1,4 @@
-#! /bin/bash
+#! /usr/bin/env -S -i /bin/bash
 
 # A configuration wrapper around restic
 
@@ -44,7 +44,7 @@ for i in passwd repo; do
     [ ! -f "$DIR/$i" ] && echo "error: $DIR/$i: missing" 1>&2 && exit 1
 done
 # check ownership and permissions
-for f in passwd repo backup exclude hook retention env mount; do
+for f in passwd repo backup exclude hook retention env mount mirror; do
     [ ! -f "$DIR/$f" ] && continue
     ff="$(realpath "$DIR/$f")"
     [ "x$(stat -c '%u' "$ff")" != "x$uid" ] && echo "error: $DIR/$f not owned by $(id -un $uid) ($uid)" 1>&2 && exit 1
@@ -96,44 +96,83 @@ shift
 
 NCDU=/usr/bin/ncdu
 REDU=/usr/bin/redu
+RCLONE=/usr/bin/rclone
 RESTIC=/usr/bin/restic
-repo="--password-file=$DIR/passwd --repository-file=$DIR/repo"
+passwd="--password-file=$DIR/passwd"
+repo="--repository-file=$DIR/repo"
 case "$CMD" in
     backup)
         if [ ! -f "$DIR/backup" ]; then
             [[ ! "$@" =~ (--quiet) ]] && echo "warning: $TARGET: skipping backup" 1>&2
-            exit 0
+            EXEC="true" # skip backup
+        else
+            files=""
+            files+=" --files-from=$DIR/backup"
+            [ -f "$DIR/exclude" ] && files+=" --exclude-file=$DIR/exclude"
+            EXEC="$RESTIC backup $repo $passwd --cleanup-cache $files $@"
         fi
-        files=""
-        [ -f "$DIR/backup" ] && files+=" --files-from=$DIR/backup"
-        [ -f "$DIR/exclude" ] && files+=" --exclude-file=$DIR/exclude"
-        EXEC="$RESTIC backup $repo --cleanup-cache $files $@"
         if [ "${#rotate[@]}" != 0 ]; then
-            EXEC+=" && $RESTIC forget $repo ${rotate[@]} --prune"
+            EXEC+=" && $RESTIC forget $repo $passwd ${rotate[@]} --prune"
             [[ "$@" =~ (--quiet) ]] && EXEC+=" --quiet" # 'forget' should go quiet too
         fi
+        EXEC+=" && $RESTIC $repo $passwd check"
+        [[ "$@" =~ (--quiet) ]] && EXEC+=" --quiet"
+        for i in $(grep -v '^ *#' "$DIR/mirror" 2>/dev/null); do
+            rclone_conf="/dev/null"
+            rclone_repo="$i"
+            # s3:s3.ca-east-006.backblazeb2.com/bucket  --> b2:bucket
+            if [[ "$i" =~ ^s3: ]]; then
+                rclone_repo="${i/:*\//:}"
+                ep="${i#*:}" && ep="${ep%/*}"
+                rclone_conf=$(mktemp --tmpdir "$(basename $0)-rclone.XXXXXX")
+cat << EOF > $rclone_conf
+[s3]
+type = s3
+hard_delete = true
+endpoint = ${ep}
+env_auth = true
+provider: other
+EOF
+            [[ "$@" =~ (--dry-run|--pretend) ]] && rm -f "$clone_conf"
+            fi
+            EXEC+=" && $RCLONE sync $(cat "$DIR/repo") $rclone_repo --config $rclone_conf --fast-list"
+            if [[ ! "$@" =~ (--quiet) ]]; then
+                EXEC+=" --progress"
+            else
+                EXEC+=" --quiet"
+            fi
+            [ "$rclone_conf" != "/dev/null" ] && EXEC+=" && rm -f $rclone_conf"
+            EXEC+=" && $RESTIC $passwd --repo "$i" check"
+            [[ "$@" =~ (--quiet) ]] && EXEC+=" --quiet"
+        done
         ;;
-    ncdu) EXEC="${RESTIC} --no-lock $repo $@ ls latest --ncdu | ${NCDU} -f -";;
-    redu) EXEC="${REDU} -j 12 $repo $@";;
+    ncdu) EXEC="${RESTIC} --no-lock $repo $passwd$@ ls latest --ncdu | ${NCDU} -f -";;
+    redu) EXEC="${REDU} -j 12 $repo $passwd $@";;
     keys)
         set +ex
             printf "%8s %42s %s\n" $(basename $DIR) $(cat $DIR/repo) $(cat $DIR/passwd)
         for i in $(cat $DIR/env 2>/dev/null); do
             printf "%52s%s\n" "" $i
         done
+        for i in $(cat $DIR/mirror 2>/dev/null); do
+            printf "%52s%s\n" "" $i
+        done
         exit 0
         ;;
-    *) EXEC="$RESTIC $repo $CMD $@";;
+    check) EXEC="$RESTIC $repo $passwd $CMD $@";; # TODO check mirrors too!
+    *) EXEC="$RESTIC $repo $passwd $CMD $@";;
 esac
 [ -f "$DIR/hook" ] && EXEC="$DIR/hook before $CMD && trap \"$DIR/hook after $CMD\" EXIT && $EXEC"
 
-[[ "$@" =~ (--dry-run|--pretend) ]] && echo "$EXEC" && exit 0
 
 if [ -f "$DIR/env" ]; then
     set -a
     source "$DIR/env"
-    set +a
 fi
+set +a
+
+[[ "$@" =~ (--dry-run|--pretend) ]] && [[ "x$rclone_conf" != "x" ]] && echo "$rclone_conf" && cat $rclone_conf && rm -f $rclone_conf
+[[ "$@" =~ (--dry-run|--pretend) ]] && env | sort && echo "$EXEC" && exit 0
 
 set -e -o pipefail
 [[ ! "$@" =~ (--quiet) ]] && set -x

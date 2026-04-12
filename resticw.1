@@ -45,9 +45,12 @@ Runs \f[B]restic backup\f[R] using the configuration files to setup
 configuration arguments.
 Files and directories listed in /\f[B]backup\f[R] will be included.
 Files and directories in /\f[B]exclude\f[R] will be excluded.
-If \f[B]backup\f[R] does not exist, this repository will be skipped for
-backup but can still be used for other restic operations (e.g.\ for
-remote backups stored at this location).
+If /\f[B]backup\f[R] does not exist, this repository will be skipped for
+backup, but will still be mirrored (/\f[B]mirror\f[R]) and checked
+(\f[B]restic check\f[R]; including all mirrored locations).
+Without performing backups itself, the configuration can still be used
+for other restic operations (e.g.\ for remote backups stored at this
+location).
 When \f[B]resticw\f[R] is run as root, it will drop privileges (before
 running /\f[B]hook\f[R], /\f[B]env\f[R], \f[B]resticw\f[R]) except for
 the \f[CR]dac_read_search\f[R] capability (read\-only access to the
@@ -174,11 +177,14 @@ directories: /\f[B]etc\f[R]/\f[B]resticw\f[R]/<name> (global) and
 Local configuration overrides global configuration.
 .PP
 Each <name> directory may contain files /\f[B]repo\f[R],
-/\f[B]passwd\f[R], /\f[B]mount\f[R], /\f[B]env\f[R], /\f[B]backup\f[R],
-/\f[B]exclude\f[R], /\f[B]retention\f[R] and /\f[B]hook\f[R].
+/\f[B]passwd\f[R], /\f[B]mount\f[R], /\f[B]env\f[R], /\f[B]mirror\f[R]
+/\f[B]backup\f[R], /\f[B]exclude\f[R], /\f[B]retention\f[R] and
+/\f[B]hook\f[R].
 The /\f[B]repo\f[R] and /\f[B]passwd\f[R] files are mandatory.
 The remaining files are optional.
 The /\f[B]hook\f[R] and /\f[B]env\f[R] scripts are executable.
+The /\f[B]mirror\f[R] file lists additional locations to mirror the
+repository, one location per line.
 Any other files in the directory are ignored.
 .PP
 Rules for the ownership and visibility of configuration files is
@@ -190,12 +196,13 @@ The owner of the /\f[B]passwd\f[R] file must be the current user.
 All files in the directory must have the same owner.
 Files in the configuration can be links, in which case the ownership
 rule applies to the linked file (see \f[B]realpath\f[R](1)).
-Repositories without a /\f[B]backup\f[R] file are skipped during
-\f[B]resticw backup\f[R].
 .SH BUGS
-Maybe.
+Limited testing for /\f[B]repo\f[R] with local paths, sftp and the
+s3/backblaze backends.
+Similarly for /\f[B]mirror\f[R] with local and s3/backblaze backends.
+Other storage options have not been tested.
 .SH AUTHOR
 Alistair Boyle <alistair.js.boyle\(atgmail.com>
 .SH SEE ALSO
-\f[B]restic\f[R](1), \f[B]ncdu\f[R](1), \f[B]redu\f[R](1),
-\f[B]setpriv\f[R](1), \f[B]capabilities\f[R](7)
+\f[B]restic\f[R](1), \f[B]rclone\f[R](1), \f[B]ncdu\f[R](1),
+\f[B]redu\f[R](1), \f[B]setpriv\f[R](1), \f[B]capabilities\f[R](7)

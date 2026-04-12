@@ -33,8 +33,11 @@ name
 **backup**
 
 : Runs **restic backup** using the configuration files to setup configuration arguments.
-  Files and directories listed in /**backup** will be included. Files and directories in /**exclude** will be excluded.
-  If **backup** does not exist, this repository will be skipped for backup but can still be used for other restic operations
+  Files and directories listed in /**backup** will be included.
+  Files and directories in /**exclude** will be excluded.
+  If /**backup** does not exist, this repository will be skipped for backup,
+  but will still be mirrored (/**mirror**) and checked (**restic check**; including all mirrored locations).
+  Without performing backups itself, the configuration can still be used for other restic operations
     (e.g. for remote backups stored at this location).
   When **resticw** is run as root, it will drop privileges (before running
     /**hook**, /**env**, **resticw**) except for the `dac_read_search` capability
@@ -140,27 +143,31 @@ Local configuration overrides global configuration.
 
 Each \<name\> directory may contain files
   /**repo**, /**passwd**,
-  /**mount**, /**env**,
+  /**mount**, /**env**, /**mirror**
   /**backup**, /**exclude**, /**retention** and /**hook**.
 The /**repo** and /**passwd** files are mandatory.
 The remaining files are optional.
 The /**hook** and /**env** scripts are executable.
+The /**mirror** file lists additional locations to mirror the repository, one location per line.
 Any other files in the directory are ignored.
 
-Rules for the ownership and visibility of configuration files is enforced for security. (Or at least reduced finger fudges.)
+Rules for the ownership and visibility of configuration files is enforced for security.
+  (Or at least reduced finger fudges.)
 All files must be chmod go-wx.
 The /**passwd** and /**env** files must be chmod go-rwx.
 The owner of the /**passwd** file must be the current user.
 All files in the directory must have the same owner.
 Files in the configuration can be links, in which case the ownership rule applies to
 the linked file (see **realpath**(1)).
-Repositories without a /**backup** file are skipped during **resticw backup**.
+
 
 # BUGS
-Maybe.
+Limited testing for /**repo** with local paths, sftp and the s3/backblaze backends.
+Similarly for /**mirror** with local and s3/backblaze backends.
+Other storage options have not been tested.
 
 # AUTHOR
 Alistair Boyle \<alistair.js.boyle@gmail.com\>
 
 # SEE ALSO
-**restic**(1), **ncdu**(1), **redu**(1), **setpriv**(1), **capabilities**(7)
+**restic**(1), **rclone**(1), **ncdu**(1), **redu**(1), **setpriv**(1), **capabilities**(7)

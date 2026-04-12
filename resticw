@@ -68,7 +68,12 @@ if [ "x$UID" == "x0" ]; then
     chown backup:backup "$RESTIC_CACHE_DIR"
 
     mnt="$(cat $DIR/mount 2>/dev/null)"
-    [ -n "$mnt" ] && mount "$mnt" && trap 'umount "$mnt"' EXIT
+    trap 'umount "$mnt" 2>/dev/null' EXIT
+    for uuid in $(grep "$mnt" /etc/fstab | cut -d' ' -f1 | sed 's/UUID=//'); do
+        [ ! -f "/dev/disk/by-uuid/$uuid" ] && continue
+        mount -o noexec "UUID=$uuid" "$mnt" 2>/dev/null
+    done
+    [ ! -d "$mnt/" ] && echo "error: failed to mount $mnt" 1>&2 && exit 1
 
     set -e
     PRIV=-all,+dac_read_search  # the 'backup' user needs 'root' read-only access
@@ -122,17 +127,16 @@ case "$CMD" in
             rclone_repo="$i"
             # s3:s3.ca-east-006.backblazeb2.com/bucket  --> b2:bucket
             if [[ "$i" =~ ^s3: ]]; then
-                rclone_repo="${i/:*\//:}"
+                rclone_repo="b2:${i/s3:*\//}"
                 ep="${i#*:}" && ep="${ep%/*}"
                 rclone_conf=$(mktemp --tmpdir "$(basename $0)-rclone.XXXXXX")
 cat << EOF > $rclone_conf
-[s3]
-type = s3
+[b2]
+type = b2
 hard_delete = true
-endpoint = ${ep}
 env_auth = true
-provider: other
 EOF
+#endpoint = ${ep}
             [[ "$@" =~ (--dry-run|--pretend) ]] && rm -f "$clone_conf"
             fi
             EXEC+=" && $RCLONE sync $(cat "$DIR/repo") $rclone_repo --config $rclone_conf --fast-list"
@@ -169,6 +173,8 @@ if [ -f "$DIR/env" ]; then
     set -a
     source "$DIR/env"
 fi
+[ -z "$RCLONE_B2_ACCOUNT" ] && RCLONE_B2_ACCOUNT="$AWS_ACCESS_KEY_ID"
+[ -z "$RCLONE_B2_KEY" ] && RCLONE_B2_KEY="$AWS_SECRET_ACCESS_KEY"
 set +a
 
 [[ "$@" =~ (--dry-run|--pretend) ]] && [[ "x$rclone_conf" != "x" ]] && echo "$rclone_conf" && cat $rclone_conf && rm -f $rclone_conf

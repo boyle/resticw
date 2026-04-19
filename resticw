@@ -105,8 +105,17 @@ RCLONE=/usr/bin/rclone
 RESTIC=/usr/bin/restic
 passwd="--password-file=$DIR/passwd"
 repo="--repository-file=$DIR/repo"
+bw="500" # in KiB/s
 case "$CMD" in
     backup)
+        if [[ ! "$@" =~ (--quiet) ]]; then
+            quiet=""
+            quiet_or_progress=" --progress"
+        else
+            quiet=" --quiet"
+            quiet_or_progress="--quiet"
+        fi
+        # backup to main repo
         if [ ! -f "$DIR/backup" ]; then
             [[ ! "$@" =~ (--quiet) ]] && echo "warning: $TARGET: skipping backup" 1>&2
             EXEC="true" # skip backup
@@ -117,37 +126,37 @@ case "$CMD" in
             EXEC="$RESTIC backup $repo $passwd --cleanup-cache $files $@"
         fi
         if [ "${#rotate[@]}" != 0 ]; then
-            EXEC+=" && $RESTIC forget $repo $passwd ${rotate[@]} --prune"
-            [[ "$@" =~ (--quiet) ]] && EXEC+=" --quiet" # 'forget' should go quiet too
+            EXEC+=" && $RESTIC forget $repo $passwd ${rotate[@]} --prune $quiet"
         fi
-        EXEC+=" && $RESTIC $repo $passwd check"
-        [[ "$@" =~ (--quiet) ]] && EXEC+=" --quiet"
+        EXEC+=" && $RESTIC $repo $passwd check $quiet"
+        # backup to mirrors
         for i in $(grep -v '^ *#' "$DIR/mirror" 2>/dev/null); do
             rclone_conf="/dev/null"
             rclone_repo="$i"
             # s3:s3.ca-east-006.backblazeb2.com/bucket  --> b2:bucket
             if [[ "$i" =~ ^s3: ]]; then
                 rclone_repo="b2:${i/s3:*\//}"
+                rclone_repo+=" --bwlimit ${bw}k"
                 ep="${i#*:}" && ep="${ep%/*}"
                 rclone_conf=$(mktemp --tmpdir "$(basename $0)-rclone.XXXXXX")
-cat << EOF > $rclone_conf
+                cat << EOF > $rclone_conf
 [b2]
 type = b2
 hard_delete = true
 env_auth = true
 EOF
-#endpoint = ${ep}
-            [[ "$@" =~ (--dry-run|--pretend) ]] && rm -f "$clone_conf"
+                [[ "$@" =~ (--dry-run|--pretend) ]] && rm -f "$clone_conf"
             fi
-            EXEC+=" && $RCLONE sync $(cat "$DIR/repo") $rclone_repo --config $rclone_conf --fast-list"
-            if [[ ! "$@" =~ (--quiet) ]]; then
-                EXEC+=" --progress"
+            if [ "$rclone_conf" != "/dev/null" ]; then
+                EXEC+=" && $RCLONE copy $(cat "$DIR/repo") $rclone_repo --config $rclone_conf --fast-list $quiet_or_progress" # because 'sync' is not incremental (for big uploads)
+                EXEC+=" && $RCLONE sync $(cat "$DIR/repo") $rclone_repo --config $rclone_conf --fast-list $quiet_or_progress"
+                EXEC+=" && $RCLONE cleanup $rclone_repo --config $rclone_conf --fast-list $quiet_or_progress"
+                EXEC+=" && $RESTIC $passwd --repo "$i" check $quiet --limit-download $bw"
+                EXEC+=" && rm -f $rclone_conf"
             else
-                EXEC+=" --quiet"
+                EXEC+=" && $RCLONE sync $(cat "$DIR/repo") $rclone_repo --config $rclone_conf --fast-list $quiet_or_progress"
+                EXEC+=" && $RESTIC $passwd --repo "$i" check $quiet"
             fi
-            [ "$rclone_conf" != "/dev/null" ] && EXEC+=" && rm -f $rclone_conf"
-            EXEC+=" && $RESTIC $passwd --repo "$i" check"
-            [[ "$@" =~ (--quiet) ]] && EXEC+=" --quiet"
         done
         ;;
     ncdu) EXEC="${RESTIC} --no-lock $repo $passwd$@ ls latest --ncdu | ${NCDU} -f -";;

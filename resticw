@@ -28,6 +28,7 @@ if [ "x$TARGET" == "xall" ]; then
     [[ ! "$@" =~ (--quiet) ]] && [ "x$1" != "xkeys" ] && set -x
     for i in ${CONFIGS[@]}; do
         "$0" "$i" $@
+        [ $? != 0 ] && exit 12
     done
     exit 0
 fi
@@ -67,15 +68,28 @@ if [ "x$UID" == "x0" ]; then
     mkdir -p -m 750 "$RESTIC_CACHE_DIR"
     chown backup:backup "$RESTIC_CACHE_DIR"
 
-    mnt="$(cat $DIR/mount 2>/dev/null)"
-    trap 'umount "$mnt" 2>/dev/null' EXIT
-    for uuid in $(grep "$mnt" /etc/fstab | cut -d' ' -f1 | sed 's/UUID=//'); do
-        [ ! -f "/dev/disk/by-uuid/$uuid" ] && continue
-        mount -o noexec "UUID=$uuid" "$mnt" 2>/dev/null
+    trap 'sleep 0.1; for i in "${mnt[@]}"; do umount "$i"; done' EXIT
+    mnt=()
+    try=()
+    if [ -f "$DIR/mount" ]; then
+        while read line; do
+            [[ "$line" =~ ^# ]] && continue
+            IFS=' ' read src dst < <(echo $line)
+            [ "x$dst" == "x" ] && dst=$src && src=
+            mount -o noexec $src $dst 2>/dev/null
+            [ $? == 0 ] && mnt+=( "$dst" )
+            try+=( "$dst" )
+        done < $DIR/mount
+    fi
+    mounts="$(cat /proc/mounts | cut -d' ' -f2 | tr '\n' ' ')"
+    for i in $(printf "%s\n" "${try[@]}" | sort -u); do
+        found=
+        for j in $mounts; do
+            [ "$j" == "$i" ] && found=1 && break
+        done
+        [ -z "$found" ] && echo "$(basename $0): $i: failed to mount" 1>&2 && exit 32
     done
-    [ ! -d "$mnt/" ] && echo "error: failed to mount $mnt" 1>&2 && exit 1
 
-    set -e
     PRIV=-all,+dac_read_search  # the 'backup' user needs 'root' read-only access
     setpriv --reuid backup --regid backup --clear-groups --reset-env \
         --bounding-set=${PRIV} --inh-caps=${PRIV} --ambient-caps=${PRIV} \
@@ -148,10 +162,10 @@ EOF
                 [[ "$@" =~ (--dry-run|--pretend) ]] && rm -f "$clone_conf"
             fi
             if [ "$rclone_conf" != "/dev/null" ]; then
-                EXEC+=" && $RCLONE copy $(cat "$DIR/repo") $rclone_repo --config $rclone_conf --fast-list $quiet_or_progress" # because 'sync' is not incremental (for big uploads)
+                #EXEC+=" && $RCLONE copy $(cat "$DIR/repo") $rclone_repo --config $rclone_conf --fast-list $quiet_or_progress" # because 'sync' is not incremental (for big uploads)
                 EXEC+=" && $RCLONE sync $(cat "$DIR/repo") $rclone_repo --config $rclone_conf --fast-list $quiet_or_progress"
-                EXEC+=" && $RCLONE cleanup $rclone_repo --config $rclone_conf --fast-list $quiet_or_progress"
-                EXEC+=" && $RESTIC $passwd --repo "$i" check $quiet --limit-download $bw"
+                #EXEC+=" && $RCLONE cleanup $rclone_repo --config $rclone_conf --fast-list $quiet_or_progress"
+                #EXEC+=" && $RESTIC $passwd --repo "$i" check $quiet --limit-download $bw"
                 EXEC+=" && rm -f $rclone_conf"
             else
                 EXEC+=" && $RCLONE sync $(cat "$DIR/repo") $rclone_repo --config $rclone_conf --fast-list $quiet_or_progress"
@@ -186,7 +200,7 @@ fi
 [ -z "$RCLONE_B2_KEY" ] && RCLONE_B2_KEY="$AWS_SECRET_ACCESS_KEY"
 set +a
 
-[[ "$@" =~ (--dry-run|--pretend) ]] && [[ "x$rclone_conf" != "x" ]] && echo "$rclone_conf" && cat $rclone_conf && rm -f $rclone_conf
+[[ "$@" =~ (--dry-run|--pretend) ]] && [[ "x$rclone_conf" != "x/dev/null" ]] && echo "$rclone_conf" && cat $rclone_conf && rm -f $rclone_conf
 [[ "$@" =~ (--dry-run|--pretend) ]] && env | sort && echo "$EXEC" && exit 0
 
 set -e -o pipefail

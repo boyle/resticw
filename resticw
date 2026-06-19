@@ -25,12 +25,13 @@ TARGET="${1//[^a-zA-Z0-9-]/}" # only accept alphanumerics
 [ "$TARGET" != "$1" ] && echo "error: $1: invalid target" 1>&2 && exit 1
 shift
 if [ "x$TARGET" == "xall" ]; then
-    [[ ! "$@" =~ (--quiet) ]] && [ "x$1" != "xkeys" ] && set -x
+    ret=0
+    [ "x$1" != "xkeys" ] && set -x
     for i in ${CONFIGS[@]}; do
         "$0" "$i" $@
-        [ $? != 0 ] && exit 12
+        [ $? != 0 ] && ((ret++))
     done
-    exit 0
+    exit $ret
 fi
 
 # $HOME/.config/resticw superceeds /etc/resticw config
@@ -147,6 +148,7 @@ case "$CMD" in
         for i in $(grep -v '^ *#' "$DIR/mirror" 2>/dev/null); do
             rclone_conf="/dev/null"
             rclone_repo="$i"
+
             # s3:s3.ca-east-006.backblazeb2.com/bucket  --> b2:bucket
             if [[ "$i" =~ ^s3: ]]; then
                 rclone_repo="b2:${i/s3:*\//}"
@@ -159,17 +161,25 @@ type = b2
 hard_delete = true
 env_auth = true
 EOF
-                [[ "$@" =~ (--dry-run|--pretend) ]] && rm -f "$clone_conf"
+                [[ "$@" =~ (--dry-run|--pretend) ]] && rm -f "$rclone_conf"
             fi
-            if [ "$rclone_conf" != "/dev/null" ]; then
-                #EXEC+=" && $RCLONE copy $(cat "$DIR/repo") $rclone_repo --config $rclone_conf --fast-list $quiet_or_progress" # because 'sync' is not incremental (for big uploads)
-                EXEC+=" && $RCLONE sync $(cat "$DIR/repo") $rclone_repo --config $rclone_conf --fast-list $quiet_or_progress"
-                #EXEC+=" && $RCLONE cleanup $rclone_repo --config $rclone_conf --fast-list $quiet_or_progress"
-                #EXEC+=" && $RESTIC $passwd --repo "$i" check $quiet --limit-download $bw"
-                EXEC+=" && rm -f $rclone_conf"
+
+            # Remote targets contain ':' (e.g. s3:, b2:, remote:host:path).
+            # Wrap rclone sync in a flock subshell so the lock is held for the
+            # entire duration of the sync.  If the lock cannot be acquired,
+            # skip rclone sync and continue with the next mirror.
+            # Local targets (no ':') proceed without locking.
+            # /tmp is tmpfs — lock is transient and cleared on reboot.
+            if [[ "$i" == *":"* ]]; then
+                sync_lock="/tmp/resticw-${UID}-remote-sync.lock"
+                if [ "$rclone_conf" != "/dev/null" ]; then
+                    EXEC+=" && { flock -n 9 || { echo 'Warning: remote sync for $i skipped; another remote sync is active.' >&2; rm -f $rclone_conf; exit 0; }; $RCLONE sync $(cat "$DIR/repo") $rclone_repo --config $rclone_conf --fast-list $quiet_or_progress && rm -f $rclone_conf; } 9>\"$sync_lock\""
+                else
+                    EXEC+=" && { flock -n 9 || { echo 'Warning: remote sync for $i skipped; another remote sync is active.' >&2; exit 0; }; $RCLONE sync $(cat "$DIR/repo") $rclone_repo --config $rclone_conf --fast-list $quiet_or_progress && $RESTIC $passwd --repo $i check $quiet; } 9>\"$sync_lock\""
+                fi
             else
                 EXEC+=" && $RCLONE sync $(cat "$DIR/repo") $rclone_repo --config $rclone_conf --fast-list $quiet_or_progress"
-                EXEC+=" && $RESTIC $passwd --repo "$i" check $quiet"
+                EXEC+=" && $RESTIC $passwd --repo $i check $quiet"
             fi
         done
         ;;

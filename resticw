@@ -141,7 +141,7 @@ case "$CMD" in
             EXEC="$RESTIC backup $repo $passwd --cleanup-cache $files $@"
         fi
         if [ "${#rotate[@]}" != 0 ]; then
-            EXEC+=" && $RESTIC forget $repo $passwd ${rotate[@]} --prune $quiet"
+            EXEC+=" && $RESTIC forget $repo $passwd ${rotate[@]} --prune $quiet --group-by ''"
         fi
         EXEC+=" && $RESTIC $repo $passwd check $quiet"
         # backup to mirrors
